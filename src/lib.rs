@@ -36,10 +36,24 @@ use sha1::Sha1;
 use sha2::Sha256;
 use sysinfo::{CpuExt, System, SystemExt};
 use utils::file_token;
+use serde::{Deserialize, Serialize};
+
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OutputItem {
+    pub name: String,
+    pub content: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Output {
+    pub items: Vec<OutputItem>,
+    pub hash: String,
+    pub algorithm: String,
+}
 
 /// The components that can be used to build the HWID.
-
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Debug)]
 pub enum HWIDComponent {
     /// System UUID
     SystemID,
@@ -96,9 +110,14 @@ impl HWIDComponent {
             DriveSerial => get_disk_id(),
         };
     }
+
+    pub fn export(&self) -> Result<String, HWIDError> {
+        self.to_string()
+    }
 }
 
 /// The encryptions that can be used to build the HWID.
+#[derive(Debug)]
 pub enum Encryption {
     MD5,
     SHA256,
@@ -170,6 +189,55 @@ impl IdBuilder {
             .map(|p| p.to_string())
             .collect::<Result<String, HWIDError>>()?;
         self.hash.generate_hash(key.as_bytes(), final_string)
+    }
+
+    /// Exports the HWID to a structured JSON.
+    pub fn export_json(&mut self, key: &str) -> Result<String, HWIDError>{
+        let mut items = vec![];
+        for part in &self.parts {
+            let content = part.export().unwrap();
+            items.push(OutputItem {
+                name: format!("{:?}", part),
+                content,
+            });
+        }
+        let final_string = self
+            .parts
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Result<String, HWIDError>>()
+            .unwrap();
+        let hash = self.hash.generate_hash(key.as_bytes(), final_string).unwrap();
+        let output = Output {
+            items,
+            hash,
+            algorithm: format!("{:?}", self.hash),
+        };
+        let json = serde_json::to_string_pretty(&output).unwrap();
+        Ok(json)
+    }
+
+    pub fn export(&mut self, key: &str) -> Result<Output, HWIDError> {
+        let mut items = vec![];
+        for part in &self.parts {
+            let content = part.export().unwrap();
+            items.push(OutputItem {
+                name: format!("{:?}", part),
+                content,
+            });
+        }
+        let final_string = self
+            .parts
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Result<String, HWIDError>>()
+            .unwrap();
+        let hash = self.hash.generate_hash(key.as_bytes(), final_string).unwrap();
+        Ok(Output {
+            items,
+            hash,
+            algorithm: format!("{:?}", self.hash),
+        })
     }
 
     /// Adds a component to the `IdBuilder` that will be hashed once you call the [`IdBuilder::build`] function.
@@ -306,5 +374,60 @@ mod test {
         let hash = builder.build("mykey").unwrap();
         let expected = env::var("MD5_MACHINEID_HASH").unwrap();
         assert_eq!(expected, hash);
+    }
+
+    #[test]
+    fn export_every_option() {
+        for component in vec![
+            HWIDComponent::SystemID,
+            HWIDComponent::OSName,
+            HWIDComponent::CPUCores,
+            HWIDComponent::CPUID,
+            HWIDComponent::DriveSerial,
+            HWIDComponent::MacAddress,
+            HWIDComponent::FileToken("test.txt"),
+            HWIDComponent::Username,
+            HWIDComponent::MachineName,
+        ] {
+            let result = component.export();
+            println!("{:?}: {:?}", component, result);
+            assert!(result.is_ok());
+        }
+    }
+
+    #[test]
+    fn export_json() {
+        let mut builder = IdBuilder::new(Encryption::MD5);
+        builder
+            .add_component(HWIDComponent::SystemID)
+            .add_component(HWIDComponent::OSName)
+            .add_component(HWIDComponent::CPUCores)
+            .add_component(HWIDComponent::CPUID)
+            .add_component(HWIDComponent::DriveSerial)
+            .add_component(HWIDComponent::MacAddress)
+            .add_component(HWIDComponent::FileToken("test.txt"))
+            .add_component(HWIDComponent::Username)
+            .add_component(HWIDComponent::MachineName);
+        let json = builder.export_json("mykey").unwrap();
+        println!("{}", json);
+        assert!(json.len() > 0);
+    }
+
+    #[test]
+    fn export() {
+        let mut builder = IdBuilder::new(Encryption::MD5);
+        builder
+            .add_component(HWIDComponent::SystemID)
+            .add_component(HWIDComponent::OSName)
+            .add_component(HWIDComponent::CPUCores)
+            .add_component(HWIDComponent::CPUID)
+            .add_component(HWIDComponent::DriveSerial)
+            .add_component(HWIDComponent::MacAddress)
+            .add_component(HWIDComponent::FileToken("test.txt"))
+            .add_component(HWIDComponent::Username)
+            .add_component(HWIDComponent::MachineName);
+        let output = builder.export("mykey").unwrap();
+        println!("{:?}", output);
+        assert!(output.items.len() > 0);
     }
 }
