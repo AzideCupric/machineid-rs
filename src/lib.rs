@@ -430,4 +430,16 @@ mod test {
         println!("{:?}", output);
         assert!(output.items.len() > 0);
     }
+
+    #[test]
+    fn test_build() {
+        let mut builder = IdBuilder::new(Encryption::SHA256);
+        builder.add_component(HWIDComponent::CPUCores);
+        builder.add_component(HWIDComponent::CPUID);
+        builder.add_component(HWIDComponent::DriveSerial);
+        builder.add_component(HWIDComponent::SystemID);
+        builder.add_component(HWIDComponent::MachineName);
+        let hash = builder.build("client_id").unwrap();
+        println!("{}", hash);
+    }
 }
